@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from typing import Annotated
 
 from fastmcp import Context, FastMCP
@@ -19,6 +20,73 @@ confluence_mcp = FastMCP(
     name="Confluence MCP Service",
     instructions="Provides tools for interacting with Atlassian Confluence.",
 )
+
+
+def _format_search_query(
+    query: str, *, use_site_search: bool = True
+) -> str:
+    """Convert natural language query to CQL, handling logical operators.
+
+    Args:
+        query: The search query string
+        use_site_search: If True, use siteSearch; if False, use text
+
+    Returns:
+        A valid CQL query string
+
+    Examples:
+        "project documentation" -> 'siteSearch ~ "project documentation"'
+        "telework OR remote work" ->
+            'siteSearch ~ "telework" OR siteSearch ~ "remote work"'
+        "devops AND kubernetes" ->
+            'siteSearch ~ "devops" AND siteSearch ~ "kubernetes"'
+        "text ~ \"foo\" OR type=page" ->
+            "text ~ \"foo\" OR type=page" (already CQL)
+    """
+    # Check if query already contains CQL field operators
+    has_field_operators = any(
+        op in query for op in ["=", "~", ">", "<", "currentUser()"]
+    )
+
+    if has_field_operators:
+        # Already valid CQL, return as-is
+        logger.debug(f"Query appears to be valid CQL already: {query}")
+        return query
+
+    # Define the field operator to use
+    field_operator = "siteSearch" if use_site_search else "text"
+
+    # Check if query contains CQL logical operators (uppercase with spaces)
+    # Pattern matches " AND " or " OR " with word boundaries
+    logical_operator_pattern = r"\s+(AND|OR)\s+"
+
+    if re.search(logical_operator_pattern, query):
+        # Split by logical operators while preserving the operators
+        parts = re.split(logical_operator_pattern, query)
+
+        # Reconstruct the query with proper CQL syntax
+        # parts will be like: ["telework", "OR", "remote work"]
+        cql_parts = []
+        for part in parts:
+            part = part.strip()
+            if part in ["AND", "OR"]:
+                # It's a logical operator, keep it as-is
+                cql_parts.append(part)
+            elif part:
+                # It's a search term, wrap it with the field operator
+                cql_parts.append(f'{field_operator} ~ "{part}"')
+
+        result = " ".join(cql_parts)
+        logger.info(
+            f"Converted natural language with operators to CQL: "
+            f"{query} -> {result}"
+        )
+        return result
+
+    # No logical operators, wrap the entire query
+    result = f'{field_operator} ~ "{query}"'
+    logger.debug(f"Converted simple query to CQL: {query} -> {result}")
+    return result
 
 
 @confluence_mcp.tool(
@@ -85,6 +153,36 @@ async def search(
         JSON string representing a list of simplified Confluence page objects.
     """
     confluence_fetcher = await get_confluence_fetcher(ctx)
+
+    # New code to tackles issues where query contains AND, OR, ... without being a proper CQL.
+    # All queries are formatted no matter what:
+    # - Natural language: "project documentation" -> 'siteSearch ~ "project documentation"'
+    # - Non-CQL logic (agents format like this a LOT, making the former way return 0 results):
+    #     "telework OR remote work" -> siteSearch ~ "telework" OR siteSearch ~ "remote work"'
+    # - Already CQL: 'siteSearch ~ "devops" AND siteSearch ~ "kubernetes"'
+    #     -> 'siteSearch ~ "devops" AND siteSearch ~ "kubernetes"' (unchanged)
+    original_query = query
+    try:
+        # Try with siteSearch first
+        query = _format_search_query(original_query, use_site_search=True)
+        pages = confluence_fetcher.search(
+            query, limit=limit, spaces_filter=spaces_filter
+        )
+    except Exception as e:
+        # If siteSearch fails, fall back to text search
+        logger.warning(
+            f"siteSearch failed with query '{query}' (error: {e}), "
+            f"falling back to text search."
+        )
+        query = _format_search_query(original_query, use_site_search=False)
+        logger.info(f"Retrying with text search: {query}")
+        pages = confluence_fetcher.search(
+            query, limit=limit, spaces_filter=spaces_filter
+        )
+    search_results = [page.to_simplified_dict() for page in pages]
+    return json.dumps(search_results, indent=2, ensure_ascii=False)
+
+    # Previous code - Will not be used - Left untouched for tracking purposes
     # Check if the query is a simple search term or already a CQL query
     if query and not any(
         x in query for x in ["=", "~", ">", "<", " AND ", " OR ", "currentUser()"]
