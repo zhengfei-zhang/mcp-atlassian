@@ -309,7 +309,8 @@ class UserTokenMiddleware:
             return False
 
         try:
-            mcp_path = self.mcp_server_ref.settings.streamable_http_path.rstrip("/")
+            import fastmcp
+            mcp_path = fastmcp.settings.streamable_http_path.rstrip("/")
             request_path = scope.get("path", "").rstrip("/")
             return request_path == mcp_path
         except (AttributeError, ValueError) as e:
