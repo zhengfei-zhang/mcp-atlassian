@@ -36,6 +36,29 @@ async def health_check(request: Request) -> JSONResponse:
     return JSONResponse({"status": "ok"})
 
 
+def _has_server_credentials(config: JiraConfig | ConfluenceConfig) -> bool:
+    """Check if config has server-level credentials configured.
+    
+    Args:
+        config: JiraConfig or ConfluenceConfig instance
+        
+    Returns:
+        True if server-level credentials are present, False otherwise
+    """
+    if config.auth_type == "basic":
+        return bool(config.username and config.api_token)
+    elif config.auth_type == "pat":
+        return bool(config.personal_token)
+    elif config.auth_type == "oauth":
+        if config.oauth_config:
+            # Check if we have actual OAuth credentials (not just minimal config)
+            return bool(
+                config.oauth_config.access_token
+                or (config.oauth_config.client_id and config.oauth_config.client_secret)
+            )
+    return False
+
+
 @asynccontextmanager
 async def main_lifespan(app: FastMCP[MainAppContext]) -> AsyncIterator[dict]:
     logger.info("Main Atlassian MCP server lifespan starting...")
@@ -45,14 +68,19 @@ async def main_lifespan(app: FastMCP[MainAppContext]) -> AsyncIterator[dict]:
 
     loaded_jira_config: JiraConfig | None = None
     loaded_confluence_config: ConfluenceConfig | None = None
+    has_jira_creds = False
+    has_confluence_creds = False
 
     if services.get("jira"):
         try:
             jira_config = JiraConfig.from_env()
             if jira_config.is_auth_configured():
                 loaded_jira_config = jira_config
+                # Check if server has creds configured
+                has_jira_creds = _has_server_credentials(jira_config)
                 logger.info(
                     "Jira configuration loaded and authentication is configured."
+                    f"Server-level credentials present: {has_jira_creds} (auth_type: {jira_config.auth_type})"
                 )
             else:
                 logger.warning(
@@ -66,8 +94,11 @@ async def main_lifespan(app: FastMCP[MainAppContext]) -> AsyncIterator[dict]:
             confluence_config = ConfluenceConfig.from_env()
             if confluence_config.is_auth_configured():
                 loaded_confluence_config = confluence_config
+                # Check if server has creds configured
+                has_confluence_creds = _has_server_credentials(confluence_config)
                 logger.info(
                     "Confluence configuration loaded and authentication is configured."
+                    f"Server-level credentials present: {has_confluence_creds} (auth_type: {confluence_config.auth_type})"
                 )
             else:
                 logger.warning(
@@ -81,9 +112,30 @@ async def main_lifespan(app: FastMCP[MainAppContext]) -> AsyncIterator[dict]:
         full_confluence_config=loaded_confluence_config,
         read_only=read_only,
         enabled_tools=enabled_tools,
+        has_jira_server_credentials=has_jira_creds,
+        has_confluence_server_credentials=has_confluence_creds,
     )
     logger.info(f"Read-only mode: {'ENABLED' if read_only else 'DISABLED'}")
     logger.info(f"Enabled tools filter: {enabled_tools or 'All tools enabled'}")
+    
+    # Log server-level credential configuration
+    logger.info("=" * 60)
+    logger.info("SERVER-LEVEL AUTHENTICATION CONFIGURATION:")
+    if has_jira_creds or has_confluence_creds:
+        logger.info("  Server-level credentials are CONFIGURED and will be used.")
+        logger.info("  All incoming Authorization headers will be IGNORED.")
+        if has_jira_creds:
+            logger.info(f"    ✓ Jira: Server credentials present (auth_type: {loaded_jira_config.auth_type})")
+        else:
+            logger.info("    ✗ Jira: No server credentials - will accept user tokens from headers")
+        if has_confluence_creds:
+            logger.info(f"    ✓ Confluence: Server credentials present (auth_type: {loaded_confluence_config.auth_type})")
+        else:
+            logger.info("    ✗ Confluence: No server credentials - will accept user tokens from headers")
+    else:
+        logger.info("  No server-level credentials configured.")
+        logger.info("  Server will accept user-provided tokens via Authorization headers.")
+    logger.info("=" * 60)
 
     try:
         yield {"app_lifespan_context": app_context}
@@ -193,7 +245,22 @@ class AtlassianMCP(FastMCP[MainAppContext]):
         transport: Literal["streamable-http", "sse"] = "streamable-http",
         **kwargs: Any,
     ) -> "Starlette":
-        user_token_mw = Middleware(UserTokenMiddleware, mcp_server_ref=self)
+        # Get app context from lifespan context if available
+        app_context: MainAppContext | None = None
+        try:
+            req_context = self._mcp_server.request_context
+            if req_context and req_context.lifespan_context:
+                lifespan_ctx_dict = req_context.lifespan_context
+                if isinstance(lifespan_ctx_dict, dict):
+                    app_context = lifespan_ctx_dict.get("app_lifespan_context")
+        except (AttributeError, KeyError, LookupError):
+            logger.debug("App context not yet available during http_app initialization")
+
+        user_token_mw = Middleware(
+            UserTokenMiddleware,
+            mcp_server_ref=self,
+            app_context=app_context
+        )
         final_middleware_list = [user_token_mw]
         if middleware:
             final_middleware_list.extend(middleware)
@@ -216,10 +283,14 @@ class UserTokenMiddleware:
     """
 
     def __init__(
-        self, app: ASGIApp, mcp_server_ref: Optional["AtlassianMCP"] = None
+        self,
+        app: ASGIApp,
+        mcp_server_ref: Optional["AtlassianMCP"] = None,
+        app_context: Optional[MainAppContext] = None
     ) -> None:
         self.app = app
         self.mcp_server_ref = mcp_server_ref
+        self.app_context = app_context
         if not self.mcp_server_ref:
             logger.warning(
                 "UserTokenMiddleware initialized without mcp_server_ref. "
@@ -319,6 +390,22 @@ class UserTokenMiddleware:
     def _process_authentication_headers(self, scope: Scope) -> None:
         """Process authentication headers and store in scope state."""
         try:
+            # Check if server-level credentials are configured
+            has_jira_server_creds = (
+                self.app_context.has_jira_server_credentials if self.app_context else False
+            )
+            has_confluence_server_creds = (
+                self.app_context.has_confluence_server_credentials if self.app_context else False
+            )
+
+            # If BOTH services have server-level credentials, skip all auth header processing
+            if has_jira_server_creds and has_confluence_server_creds:
+                logger.debug(
+                    "UserTokenMiddleware: Both Jira and Confluence have server-level "
+                    "credentials configured. Skipping Authorization header processing."
+                )
+                return
+
             # Parse headers from scope (headers are byte tuples per ASGI spec)
             headers = dict(scope.get("headers", []))
             auth_header = headers.get(b"authorization")
