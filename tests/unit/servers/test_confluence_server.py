@@ -279,7 +279,7 @@ async def test_get_page(client, mock_confluence_fetcher):
     response = await client.call_tool("confluence_get_page", {"page_id": "123456"})
 
     mock_confluence_fetcher.get_page_content.assert_called_once_with(
-        "123456", convert_to_markdown=True
+        "123456", convert_to_markdown=True, body_format="export_view"
     )
 
     result_data = json.loads(response.content[0].text)
