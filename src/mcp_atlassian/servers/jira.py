@@ -84,7 +84,7 @@ async def get_user_profile(
 
 
 @jira_mcp.tool(
-    tags={"jira", "read"},
+    tags={"jira", "read", "librarian"},
     annotations={"title": "Get Issue", "readOnlyHint": True},
 )
 async def get_issue(
@@ -163,7 +163,7 @@ async def get_issue(
 
 
 @jira_mcp.tool(
-    tags={"jira", "read"},
+    tags={"jira", "read", "librarian"},
     annotations={"title": "Search Issues", "readOnlyHint": True},
 )
 async def search(
@@ -250,7 +250,7 @@ async def search(
 
 
 @jira_mcp.tool(
-    tags={"jira", "read"},
+    tags={"jira", "read", "librarian"},
     annotations={"title": "Search Fields", "readOnlyHint": True},
 )
 async def search_fields(
@@ -658,7 +658,7 @@ async def get_sprint_issues(
 
 
 @jira_mcp.tool(
-    tags={"jira", "read"},
+    tags={"jira", "read", "librarian"},
     annotations={"title": "Get Link Types", "readOnlyHint": True},
 )
 async def get_link_types(ctx: Context) -> str:
@@ -862,7 +862,7 @@ async def batch_create_issues(
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
-@jira_mcp.tool(tags={"jira", "read"})
+@jira_mcp.tool(tags={"jira", "read", "librarian"})
 async def batch_get_changelogs(
     ctx: Context,
     issue_ids_or_keys: Annotated[
@@ -929,7 +929,7 @@ async def batch_get_changelogs(
     return json.dumps(results, indent=2, ensure_ascii=False)
 
 
-@jira_mcp.tool(tags={"jira", "write"})
+@jira_mcp.tool(tags={"jira", "write", "executor"})
 @check_write_access
 async def update_issue(
     ctx: Context,
@@ -1053,7 +1053,7 @@ async def delete_issue(
 
 
 @jira_mcp.tool(
-    tags={"jira", "write"},
+    tags={"jira", "write", "executor"},
     annotations={"title": "Add Comment", "destructiveHint": True},
 )
 @check_write_access
@@ -1414,7 +1414,7 @@ async def remove_issue_link(
 
 
 @jira_mcp.tool(
-    tags={"jira", "write"},
+    tags={"jira", "write", "executor"},
     annotations={"title": "Transition Issue", "destructiveHint": True},
 )
 @check_write_access
