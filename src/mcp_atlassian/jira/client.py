@@ -4,7 +4,8 @@ import logging
 import os
 from typing import Any, Literal
 
-from atlassian import Jira
+#from atlassian import Jira # Original import
+from mcp_atlassian.jira.custom_jira import CustomJira as Jira # Our custom Jira class
 from requests import Session
 
 from mcp_atlassian.exceptions import MCPAtlassianAuthenticationError
