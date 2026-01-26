@@ -336,7 +336,7 @@ async def get_project_issues(
 
 
 @jira_mcp.tool(
-    tags={"jira", "read"},
+    tags={"jira", "read", "executor"},
     annotations={"title": "Get Transitions", "readOnlyHint": True},
 )
 async def get_transitions(
