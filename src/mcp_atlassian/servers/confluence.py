@@ -130,12 +130,12 @@ async def search(
         ),
     ] = 10,
     spaces_filter: Annotated[
-        str | None,
+        str,
         Field(
-            description="Comma-separated space keys to filter by (optional, default: None). Overrides CONFLUENCE_SPACES_FILTER env var. Use empty string to disable filtering.",
-            default=None,
+            description="Comma-separated space keys to filter by (optional, default: empty string). Overrides CONFLUENCE_SPACES_FILTER env var. Use empty string to disable filtering.",
+            default="",
         ),
-    ] = None,
+    ] = "",
 ) -> str:
     """Search Confluence content using simple terms or CQL.
 
@@ -149,6 +149,9 @@ async def search(
         JSON string representing a list of simplified Confluence page objects.
     """
     confluence_fetcher = await get_confluence_fetcher(ctx)
+
+    # Convert empty string to None for backward compatibility
+    spaces_filter = None if spaces_filter == "" else spaces_filter
 
     # New code to tackles issues where query contains AND, OR, ... without being a proper CQL.
     # All queries are formatted no matter what:
@@ -214,26 +217,26 @@ async def search(
 async def get_page(
     ctx: Context,
     page_id: Annotated[
-        str | int | None,
+        str,
         Field(
-            description="Confluence page ID (optional, default: None). Numeric ID from page URL. Provide this OR both 'title' and 'space_key'. If provided, title and space_key are ignored.",
-            default=None,
+            description="Confluence page ID (optional, default: empty string). Numeric ID from page URL. Provide this OR both 'title' and 'space_key'. If provided, title and space_key are ignored.",
+            default="",
         ),
-    ] = None,
+    ] = "",
     title: Annotated[
-        str | None,
+        str,
         Field(
-            description="Exact page title (optional, default: None). Use with 'space_key' if 'page_id' is not known.",
-            default=None,
+            description="Exact page title (optional, default: empty string). Use with 'space_key' if 'page_id' is not known.",
+            default="",
         ),
-    ] = None,
+    ] = "",
     space_key: Annotated[
-        str | None,
+        str,
         Field(
-            description="Space key where page resides (optional, default: None). Required if using 'title'. Examples: 'DEV', 'TEAM'",
-            default=None,
+            description="Space key where page resides (optional, default: empty string). Required if using 'title'. Examples: 'DEV', 'TEAM'",
+            default="",
         ),
-    ] = None,
+    ] = "",
     include_metadata: Annotated[
         bool,
         Field(
@@ -271,6 +274,12 @@ async def get_page(
         JSON string representing the page content and/or metadata, or an error if not found or parameters are invalid.
     """
     confluence_fetcher = await get_confluence_fetcher(ctx)
+
+    # Convert empty strings to None for backward compatibility
+    page_id = None if page_id == "" else page_id
+    title = None if title == "" else title
+    space_key = None if space_key == "" else space_key
+
     page_object = None
 
     if page_id:
