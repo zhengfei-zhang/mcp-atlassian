@@ -22,7 +22,7 @@ from mcp_atlassian.jira import JiraFetcher
 from mcp_atlassian.jira.config import JiraConfig
 from mcp_atlassian.utils.environment import get_available_services
 from mcp_atlassian.utils.io import is_read_only_mode
-from mcp_atlassian.utils.logging import mask_sensitive
+from mcp_atlassian.utils.logging import mask_sensitive, configure_protocol_logging
 from mcp_atlassian.utils.tools import get_enabled_tools, should_include_tool
 
 from .confluence import confluence_mcp
@@ -62,6 +62,10 @@ def _has_server_credentials(config: JiraConfig | ConfluenceConfig) -> bool:
 @asynccontextmanager
 async def main_lifespan(app: FastMCP[MainAppContext]) -> AsyncIterator[dict]:
     logger.info("Main Atlassian MCP server lifespan starting...")
+
+    # Configure protocol logging level based on environment variable
+    configure_protocol_logging()
+
     services = get_available_services()
     read_only = is_read_only_mode()
     enabled_tools = get_enabled_tools()
@@ -303,6 +307,9 @@ class UserTokenMiddleware:
             await self.app(scope, receive, send)
             return
 
+        # Log incoming request at INFO level and get logging receive wrapper
+        logging_receive = await self._log_incoming_request(scope, receive)
+
         # According to ASGI spec, middleware should copy scope when modifying it
         scope_copy: Scope = dict(scope)
 
@@ -349,7 +356,96 @@ class UserTokenMiddleware:
             return  # Don't call self.app - request is rejected
 
         # Call the next application with modified scope and safe send wrapper
-        await self.app(scope_copy, receive, safe_send)
+        await self.app(scope_copy, logging_receive, safe_send)
+
+    async def _log_incoming_request(self, scope: Scope, receive: Receive) -> Receive:
+        """Log incoming request with headers and body when protocol logging is enabled.
+
+        Returns a new receive callable that buffers and logs the body.
+        """
+        # Check if logging is enabled - respects both MCP_LOG_PROTOCOL and logger level
+        should_log = logger.isEnabledFor(logging.INFO)
+
+        if not should_log:
+            # Return original receive without any logging overhead
+            return receive
+
+        try:
+            method = scope.get("method", "UNKNOWN")
+            path = scope.get("path", "UNKNOWN")
+            query_string = scope.get("query_string", b"").decode("latin-1")
+
+            # Log request line
+            logger.info("=" * 80)
+            logger.info(f"INCOMING REQUEST: {method} {path}")
+            if query_string:
+                logger.info(f"Query String: {query_string}")
+
+            # Log all headers
+            headers = dict(scope.get("headers", []))
+            logger.info("Request Headers:")
+            for header_name_bytes, header_value_bytes in headers.items():
+                header_name = header_name_bytes.decode("latin-1") if isinstance(header_name_bytes, bytes) else str(header_name_bytes)
+                header_value = header_value_bytes.decode("latin-1") if isinstance(header_value_bytes, bytes) else str(header_value_bytes)
+
+                # Mask sensitive headers
+                if header_name.lower() in ["authorization", "x-api-token", "x-api-key"]:
+                    if header_value:
+                        # Show type (Bearer/Basic) but mask the token
+                        parts = header_value.split(" ", 1)
+                        if len(parts) == 2:
+                            masked_value = f"{parts[0]} {parts[1][:8]}...{parts[1][-4:]}" if len(parts[1]) > 12 else f"{parts[0]} ***"
+                        else:
+                            masked_value = "***"
+                        logger.info(f"  {header_name}: {masked_value}")
+                    else:
+                        logger.info(f"  {header_name}: (empty)")
+                else:
+                    logger.info(f"  {header_name}: {header_value}")
+
+        except Exception as e:
+            logger.error(f"Error logging incoming request headers: {e}", exc_info=True)
+
+        # Create a wrapper for receive that logs the body
+        body_parts = []
+        body_logged = False
+
+        async def logging_receive():
+            nonlocal body_logged
+            message = await receive()
+
+            # Log body chunks as they come in
+            if message["type"] == "http.request" and not body_logged:
+                body_chunk = message.get("body", b"")
+                if body_chunk:
+                    body_parts.append(body_chunk)
+
+                # If this is the last chunk, log the full body
+                if not message.get("more_body", False):
+                    body_logged = True
+                    try:
+                        full_body = b"".join(body_parts)
+                        body_str = full_body.decode("utf-8", errors="replace")
+
+                        # Truncate if too long
+                        max_body_log_length = 5000
+                        if len(body_str) > max_body_log_length:
+                            logger.info(f"Request Body (first {max_body_log_length} chars):")
+                            logger.info(body_str[:max_body_log_length] + "...")
+                        elif body_str:
+                            logger.info("Request Body:")
+                            logger.info(body_str)
+                        else:
+                            logger.info("Request Body: (empty)")
+                        logger.info("=" * 80)
+                    except Exception as e:
+                        logger.warning(f"Could not decode request body: {e}")
+                        logger.info("=" * 80)
+
+            return message
+
+        return logging_receive
+
 
     async def _send_json_error_response(
         self, send: Send, status_code: int, error_message: str
