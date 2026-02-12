@@ -248,6 +248,13 @@ async def get_page(
             default=True,
         ),
     ] = True,
+    body_format: Annotated[
+        str,
+        Field(
+            description="Body format to retrieve from Confluence API (default: 'export_view'). Options: 'storage' (raw XHTML), 'view' (rendered), 'export_view' (most compatible, recommended).",
+            default="export_view",
+        ),
+    ] = "export_view",
 ) -> str:
     """Get content of a specific Confluence page by its ID, or by its title and space key.
 
@@ -258,6 +265,7 @@ async def get_page(
         space_key: The key of the space. Must be used with 'title'.
         include_metadata: Whether to include page metadata.
         convert_to_markdown: Convert content to markdown (true) or keep raw HTML (false).
+        body_format: Body format to retrieve ('storage', 'view', or 'export_view').
 
     Returns:
         JSON string representing the page content and/or metadata, or an error if not found or parameters are invalid.
@@ -273,7 +281,9 @@ async def get_page(
         try:
             page_id_str = str(page_id)
             page_object = confluence_fetcher.get_page_content(
-                page_id_str, convert_to_markdown=convert_to_markdown
+                page_id_str,
+                convert_to_markdown=convert_to_markdown,
+                body_format=body_format
             )
         except Exception as e:
             logger.error(f"Error fetching page by ID '{page_id}': {e}")
@@ -284,7 +294,10 @@ async def get_page(
             )
     elif title and space_key:
         page_object = confluence_fetcher.get_page_by_title(
-            space_key, title, convert_to_markdown=convert_to_markdown
+            space_key,
+            title,
+            convert_to_markdown=convert_to_markdown,
+            body_format=body_format
         )
         if not page_object:
             return json.dumps(
@@ -370,6 +383,13 @@ async def get_page_children(
             default=True,
         ),
     ] = True,
+    body_format: Annotated[
+        str,
+        Field(
+            description="Body format to retrieve from Confluence API (default: 'storage'). Options: 'storage' (raw XHTML), 'view' (rendered), 'export_view' (export-ready). Only used when body content is expanded.",
+            default="storage",
+        ),
+    ] = "storage",
 ) -> str:
     """Get child pages and folders of a specific Confluence page.
 
@@ -382,13 +402,14 @@ async def get_page_children(
         convert_to_markdown: Convert content to markdown if include_content is true.
         start: Starting index for pagination.
         include_folders: Whether to include child folders (default: True).
+        body_format: Body format to retrieve ('storage', 'view', or 'export_view').
 
     Returns:
         JSON string representing a list of child page and folder objects.
     """
     confluence_fetcher = await get_confluence_fetcher(ctx)
     if include_content and "body" not in expand:
-        expand = f"{expand},body.storage" if expand else "body.storage"
+        expand = f"{expand},body.{body_format}" if expand else f"body.{body_format}"
 
     try:
         pages = confluence_fetcher.get_page_children(
@@ -398,6 +419,7 @@ async def get_page_children(
             expand=expand,
             convert_to_markdown=convert_to_markdown,
             include_folders=include_folders,
+            body_format=body_format,
         )
         child_pages = [page.to_simplified_dict() for page in pages]
         result = {
