@@ -156,11 +156,16 @@ MOCK_PAGE_RESPONSE = {
             "embeddedContent": [],
             "_expandable": {"content": "/rest/api/content/987654321"},
         },
+        "export_view": {
+            "value": '<h2>📅 Date</h2><p>2024-01-01</p><h2>👥 Participants</h2><ul><li><p>Example User</p></li></ul><h2>🎯 Goals</h2><ul><li><p>Example goal</p></li></ul>',
+            "representation": "export_view",
+            "embeddedContent": [],
+            "_expandable": {"content": "/rest/api/content/987654321"},
+        },
         "_expandable": {
             "editor": "",
             "atlas_doc_format": "",
             "view": "",
-            "export_view": "",
             "styled_view": "",
             "dynamic": "",
             "editor2": "",

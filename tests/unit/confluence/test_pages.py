@@ -37,7 +37,7 @@ class TestPagesMixin:
 
         # Assert
         pages_mixin.confluence.get_page_by_id.assert_called_once_with(
-            page_id=page_id, expand="body.storage,version,space,children.attachment"
+            page_id=page_id, expand="body.export_view,space"
         )
 
         # Verify result structure
@@ -696,7 +696,7 @@ class TestPagesMixin:
 
         # Verify the API call
         pages_mixin.confluence.get_page_by_id.assert_called_once_with(
-            page_id=page_id, expand="body.storage,version,space,children.attachment"
+            page_id=page_id, expand="body.export_view,space"
         )
 
         # Verify the result
@@ -1186,7 +1186,10 @@ class TestPagesOAuthMixin:
             mock_v2_adapter.get_page.return_value = {
                 "id": page_id,
                 "title": "OAuth Test Page",
-                "body": {"storage": {"value": "<p>OAuth page content</p>"}},
+                "body": {
+                    "storage": {"value": "<p>OAuth page content</p>"},
+                    "export_view": {"value": "<p>OAuth page content</p>"}
+                },
                 "space": {"key": "PROJ", "name": "Project"},
                 "version": {"number": 3},
             }
@@ -1204,7 +1207,7 @@ class TestPagesOAuthMixin:
 
             # Assert that v2 API was used instead of v1
             mock_v2_adapter.get_page.assert_called_once_with(
-                page_id=page_id, expand="body.storage,version,space,children.attachment"
+                page_id=page_id, expand="body.export_view,space"
             )
 
             # Verify v1 API was NOT called
