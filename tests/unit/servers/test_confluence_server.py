@@ -362,7 +362,7 @@ async def test_search_with_or_operator(client, mock_confluence_fetcher):
     assert 'siteSearch ~ "telework" OR siteSearch ~ "remote work"' in args[0]
     assert kwargs.get("limit") == 10
 
-    result_data = json.loads(response[0].text)
+    result_data = json.loads(response.content[0].text)
     assert isinstance(result_data, list)
 
 
@@ -378,7 +378,7 @@ async def test_search_with_and_operator(client, mock_confluence_fetcher):
     # Should convert to proper CQL with AND operator
     assert 'siteSearch ~ "devops" AND siteSearch ~ "kubernetes"' in args[0]
 
-    result_data = json.loads(response[0].text)
+    result_data = json.loads(response.content[0].text)
     assert isinstance(result_data, list)
 
 
@@ -395,7 +395,7 @@ async def test_search_with_multiple_operators(client, mock_confluence_fetcher):
     expected_cql = 'siteSearch ~ "python" AND siteSearch ~ "flask" OR siteSearch ~ "django"'
     assert expected_cql in args[0]
 
-    result_data = json.loads(response[0].text)
+    result_data = json.loads(response.content[0].text)
     assert isinstance(result_data, list)
 
 
@@ -411,7 +411,7 @@ async def test_search_with_lowercase_or(client, mock_confluence_fetcher):
     # Should treat as a single phrase since 'or' is lowercase
     assert 'siteSearch ~ "telework or remote work"' in args[0]
 
-    result_data = json.loads(response[0].text)
+    result_data = json.loads(response.content[0].text)
     assert isinstance(result_data, list)
 
 
@@ -423,10 +423,10 @@ async def test_search_with_existing_cql(client, mock_confluence_fetcher):
 
     mock_confluence_fetcher.search.assert_called_once()
     args, kwargs = mock_confluence_fetcher.search.call_args
-    # Should pass through as-is since it's already valid CQL
-    assert cql_query in args[0]
+    # Should pass through raw CQL
+    assert args[0] == cql_query
 
-    result_data = json.loads(response[0].text)
+    result_data = json.loads(response.content[0].text)
     assert isinstance(result_data, list)
 
 
