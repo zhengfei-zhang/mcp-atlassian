@@ -90,7 +90,7 @@ def _format_search_query(
 
 
 @confluence_mcp.tool(
-    tags={"confluence", "read"},
+    tags={"confluence", "read", "librarian"},
     annotations={"title": "Search Content", "readOnlyHint": True},
 )
 async def search(
@@ -208,7 +208,7 @@ async def search(
 
 
 @confluence_mcp.tool(
-    tags={"confluence", "read"},
+    tags={"confluence", "read", "librarian"},
     annotations={"title": "Get Page", "readOnlyHint": True},
 )
 async def get_page(
@@ -328,7 +328,7 @@ async def get_page(
 
 
 @confluence_mcp.tool(
-    tags={"confluence", "read"},
+    tags={"confluence", "read", "librarian"},
     annotations={"title": "Get Page Children", "readOnlyHint": True},
 )
 async def get_page_children(
@@ -372,8 +372,8 @@ async def get_page_children(
     start: Annotated[
         int,
         Field(
-            description="Starting index for pagination (default: 0). MUST be 0 or greater.",
-            default=0,
+            description="Starting index for pagination (default: 0). MUST be 0 or greater.", 
+            default=0, 
             ge=0),
     ] = 0,
     include_folders: Annotated[
@@ -440,7 +440,7 @@ async def get_page_children(
 
 
 @confluence_mcp.tool(
-    tags={"confluence", "read"},
+    tags={"confluence", "read", "librarian"},
     annotations={"title": "Get Comments", "readOnlyHint": True},
 )
 async def get_comments(
